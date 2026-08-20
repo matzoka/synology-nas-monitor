@@ -5,6 +5,18 @@ SYNO.API を使い、別の Synology NAS の状態をブラウザ画面と Teleg
 ![DSM 7](https://img.shields.io/badge/DSM-7.x-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+## 画面イメージ
+
+以下は、実際の画面構成を汎用データで表示した例です。NAS名、URL、アカウント、温度履歴は実機の値を含みません。
+
+### ダッシュボード
+
+![NAS Monitor ダッシュボード](assets/dashboard.png)
+
+### 設定
+
+![NAS Monitor 設定画面](assets/settings.png)
+
 ## 主な機能
 
 - システム温度、CPU、メモリ、ネットワーク使用量
