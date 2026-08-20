@@ -19,7 +19,7 @@ SYNO.API を使い、別の Synology NAS の状態をブラウザ画面と Teleg
 
 ### Telegram通知と操作ボタン
 
-![NAS Monitor Telegram通知の操作ボタン](assets/telegram-controls.png)
+![NAS Monitor Telegram通知の操作ボタン（1時間停止・通知停止・通知再開・スクショ取得）](assets/telegram-controls-v0.5.20.png)
 
 ### Telegram向け状況画像
 
