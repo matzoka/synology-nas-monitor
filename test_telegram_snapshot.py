@@ -31,6 +31,7 @@ status = {"configured": True, "ok": True, "data": data, "severity": "WARNING",
 events = []
 server.store.load_config = lambda: dict(cfg)
 server.store.load_state = lambda: dict(state)
+server.store.save_state = lambda value: (state.clear(), state.update(value))
 server.store.read_status = lambda: dict(status)
 server.store.read_telemetry = lambda range_name: {"samples": [{"t": 1000, "cpu": 20, "mem": 35, "sys": 70, "disks": {"Drive 1": 40}}]}
 server.store.append_history = lambda *args, **kwargs: events.append((args, kwargs))
@@ -62,6 +63,27 @@ server.handle_callback(callback, cfg)
 check("snapshot button replies with photo", len(photos) == 2)
 check("snapshot button requests fresh data", "最新データを取得しました" in photos[-1]["caption"])
 check("snapshot button uses PNG", photos[-1]["png"].startswith(b"\x89PNG"))
+
+# Stop/resume controls must only update the notification mode.  They must not
+# create an unsolicited screenshot, and each selection replaces the prior mode.
+control_message = {"chat": {"id": 99}, "message_id": 8, "caption": "status"}
+server.handle_callback({"id": "cb2", "data": "notify_pause", "message": control_message}, cfg)
+check("notification pause persists", state["notifyEnabled"] is False and state["hushUntil"] is None)
+check("notification pause sends no screenshot", len(photos) == 2)
+server.handle_callback({"id": "cb3", "data": "notify_resume", "message": control_message}, cfg)
+check("notification resume persists", state["notifyEnabled"] is True and state["hushUntil"] is None)
+check("notification resume sends no screenshot", len(photos) == 2)
+server.handle_callback({"id": "cb4", "data": "notify_hush_1h", "message": control_message}, cfg)
+check("one-hour pause replaces previous mode", state["notifyEnabled"] is True and state["hushUntil"] is not None)
+check("one-hour pause sends no screenshot", len(photos) == 2)
+
+# Advancing Telegram's update offset must retain the mode selected by the
+# callback instead of restoring the stale, pre-callback state.
+state.update({"notifyEnabled": True, "hushUntil": None, "tgOffset": 100})
+server.process_telegram_updates([
+    {"update_id": 101, "callback_query": {"id": "cb5", "data": "notify_pause", "message": control_message}}
+], cfg)
+check("offset save preserves selected notification mode", state["notifyEnabled"] is False and state["hushUntil"] is None and state["tgOffset"] == 102)
 
 print()
 print("FAILED" if failed else "ALL TELEGRAM SNAPSHOT TESTS PASSED")
