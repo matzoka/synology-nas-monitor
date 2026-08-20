@@ -10,6 +10,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import alerts
+import snapshot
 import store
 import syno
 import telegram
@@ -41,12 +42,37 @@ def get_client(cfg):
     return _client
 
 
-def tg_send(text):
+def _snapshot_bytes(status=None, cfg=None, state=None):
+    status = status or store.read_status() or {}
+    cfg = cfg or store.load_config()
+    state = state or store.load_state()
+    telemetry = store.read_telemetry("24h").get("samples", [])
+    return snapshot.render(
+        status.get("data"), telemetry, cfg, state,
+        fetched_at=status.get("fetchedAt"), ok=status.get("ok", True),
+        error=status.get("error"),
+    )
+
+
+def tg_send(text, status=None):
+    """Deliver every automatic notification with a one-page status image.
+
+    If photo delivery itself fails, a text-only alert is sent as a safety
+    fallback; losing a temperature warning is worse than losing its image.
+    """
     cfg = store.load_config()
     if not cfg["tgToken"] or not cfg["chatId"]:
         return False, "Telegram 未設定"
     try:
-        telegram.send_message(cfg["tgToken"], cfg["chatId"], text, buttons=True)
+        telegram.send_photo(cfg["tgToken"], cfg["chatId"], _snapshot_bytes(status, cfg), text, buttons=True)
+        return True, None
+    except telegram.TelegramError as e:
+        photo_error = str(e)
+    except Exception as e:
+        photo_error = "画像作成失敗: " + str(e)
+    try:
+        telegram.send_message(cfg["tgToken"], cfg["chatId"], text + "\n\n[状況画像を添付できませんでした: " + photo_error + "]", buttons=True)
+        store.append_history("通知画像", "画像添付に失敗したため本文のみ送信", sent=False, error=photo_error)
         return True, None
     except telegram.TelegramError as e:
         return False, str(e)
@@ -75,7 +101,6 @@ def monitor_loop():
         else:
             try:
                 data = get_client(cfg).collect()
-                engine.process_sample(data)
                 store.record_telemetry(data)
                 st = store.load_state()
                 store.write_status({
@@ -85,9 +110,27 @@ def monitor_loop():
                     "hushUntil": st.get("hushUntil"),
                     "fetchedAt": syno.now_iso(),
                 })
+                engine.process_sample(data)
+                st = store.load_state()
+                store.write_status({
+                    "configured": True, "ok": True, "data": data,
+                    "severity": st.get("severity"),
+                    "notifyEnabled": st.get("notifyEnabled"),
+                    "hushUntil": st.get("hushUntil"),
+                    "fetchedAt": syno.now_iso(),
+                })
             except Exception as e:
-                engine.process_failure(e)
                 prev = store.read_status() or {}
+                st = store.load_state()
+                store.write_status({
+                    "configured": True, "ok": False, "error": str(e),
+                    "data": prev.get("data"),
+                    "severity": st.get("severity"),
+                    "notifyEnabled": st.get("notifyEnabled"),
+                    "hushUntil": st.get("hushUntil"),
+                    "fetchedAt": syno.now_iso(),
+                })
+                engine.process_failure(e)
                 st = store.load_state()
                 store.write_status({
                     "configured": True, "ok": False, "error": str(e),
@@ -130,16 +173,56 @@ def status_message():
     return "\n".join(lines)
 
 
+def collect_snapshot_status(cfg):
+    """Try a fresh SYNO.API read for a Telegram button request.
+
+    A failed manual read never fabricates a result.  The image is labelled as
+    cached data and includes the failure state instead.
+    """
+    try:
+        data = get_client(cfg).collect()
+        state = store.load_state()
+        status = {
+            "configured": True, "ok": True, "data": data,
+            "severity": state.get("severity"),
+            "notifyEnabled": state.get("notifyEnabled"),
+            "hushUntil": state.get("hushUntil"),
+            "fetchedAt": syno.now_iso(),
+        }
+        store.record_telemetry(data)
+        store.write_status(status)
+        return status, "最新データを取得しました"
+    except Exception as e:
+        cached = dict(store.read_status() or {"configured": True})
+        cached["ok"] = False
+        cached["error"] = str(e)
+        cached["fetchedAt"] = cached.get("fetchedAt") or syno.now_iso()
+        return cached, "最新取得に失敗したため、直近の保存データを表示しています"
+
+
 def handle_callback(cb, cfg):
     cb_id = cb.get("id")
     msg = cb.get("message") or {}
     chat = msg.get("chat") or {}
     cid = chat.get("id")
-    telegram.answer_callback(cfg["tgToken"], cb_id)
     if str(cid) != str(cfg["chatId"]):
+        telegram.answer_callback(cfg["tgToken"], cb_id, "このチャットからは操作できません")
         store.append_history("操作拒否", f"未許可の Chat ID からの操作: {cid}")
         return
     action = cb.get("data")
+    telegram.answer_callback(cfg["tgToken"], cb_id, "処理しています")
+    if action == "snapshot_now":
+        try:
+            status, freshness = collect_snapshot_status(cfg)
+            telegram.send_photo(
+                cfg["tgToken"], cid, _snapshot_bytes(status, cfg),
+                "[現在の状況] NAS Monitor\n" + freshness + "\n" + status_message(), buttons=True)
+            store.append_history("状況画像", freshness, sent=True)
+        except telegram.TelegramError as e:
+            store.append_history("状況画像", "Telegramへ状況画像を送信できませんでした", sent=False, error=str(e))
+        except Exception as e:
+            store.append_history("状況画像", "状況画像の作成に失敗しました", sent=False, error=str(e))
+        return
     st = store.load_state()
     label = None
     if action == "notify_hush_1h":
@@ -156,12 +239,15 @@ def handle_callback(cb, cfg):
         return
     store.save_state(st)
     store.append_history("通知操作", label)
-    orig = msg.get("text", "")
-    if orig:
-        telegram.edit_message_text(cfg["tgToken"], cid, msg.get("message_id"), orig + "\n\n✅ " + label)
+    orig_caption = msg.get("caption")
+    orig_text = msg.get("text")
+    if orig_caption:
+        telegram.edit_message_caption(cfg["tgToken"], cid, msg.get("message_id"), orig_caption + "\n\n✅ " + label)
+    elif orig_text:
+        telegram.edit_message_text(cfg["tgToken"], cid, msg.get("message_id"), orig_text + "\n\n✅ " + label)
     if action == "notify_resume":
         try:
-            telegram.send_message(cfg["tgToken"], cfg["chatId"], status_message(), buttons=True)
+            tg_send(status_message())
         except telegram.TelegramError as e:
             store.append_history("通知操作", "再開時の状態通知に失敗", sent=False, error=str(e))
 
@@ -275,13 +361,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": False, "error": "Bot Token と Chat ID を先に保存してください"}, code=400)
             return
         try:
-            telegram.send_message(
-                cfg["tgToken"], cfg["chatId"],
-                "[テスト] NAS Monitor\nTelegram 通知テストです。監視対象NASへの操作ではありません。\n送信先: 設定済み Telegram チャット",
-                buttons=True)
-            store.append_history("通知テスト", "Telegram 通知テストを送信", sent=True)
-            self._json({"ok": True})
-        except telegram.TelegramError as e:
+            ok, error = tg_send(
+                "[テスト] NAS Monitor\nTelegram 通知テストです。監視対象NASへの操作ではありません。\n送信先: 設定済み Telegram チャット")
+            store.append_history("通知テスト", "Telegram 通知テストを送信", sent=ok, error=error)
+            self._json({"ok": ok, "error": error} if not ok else {"ok": True}, code=400 if not ok else 200)
+        except Exception as e:
             store.append_history("通知テスト", "Telegram 通知テスト失敗", sent=False, error=str(e))
             self._json({"ok": False, "error": str(e)}, code=400)
 

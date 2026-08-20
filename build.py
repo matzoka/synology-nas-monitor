@@ -9,7 +9,7 @@ SRC = os.path.join(ROOT, "src")
 OUT = os.path.join(ROOT, "dist")
 os.makedirs(OUT, exist_ok=True)
 
-for mod in ("server.py", "store.py", "syno.py", "telegram.py", "alerts.py"):
+for mod in ("server.py", "store.py", "syno.py", "telegram.py", "alerts.py", "snapshot.py"):
     cfile = os.path.join(OUT, f"_check_{mod}.pyc")
     py_compile.compile(os.path.join(SRC, "package", "nasmon", mod), cfile=cfile, doraise=True)
     os.remove(cfile)
