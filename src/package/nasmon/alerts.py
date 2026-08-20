@@ -107,6 +107,9 @@ class AlertEngine:
         prev_sev = st.get("severity", "NORMAL")
 
         if new_sev != prev_sev:
+            # The notification image is generated during notify().  Store the
+            # new state first so its status banner agrees with the alert text.
+            st["severity"] = new_sev
             if ORDER[new_sev] > ORDER[prev_sev]:
                 kind = SEV_NAMES[new_sev]
                 event = f"{SEV_NAMES[prev_sev]} → {SEV_NAMES[new_sev]}（{temp}°C が設定値を超過）"
@@ -117,7 +120,6 @@ class AlertEngine:
                 kind = "低下"
                 event = f"{SEV_NAMES[prev_sev]} から {SEV_NAMES[new_sev]} へ低下（{temp}°C）"
             self.notify(kind, event, data, now=now)
-            st["severity"] = new_sev
             st.setdefault("lastSent", {})[new_sev] = now
             if new_sev != "WARNING":
                 st["approachSent"] = False
