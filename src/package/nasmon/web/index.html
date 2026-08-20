@@ -72,17 +72,27 @@
   .trend-tools { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
   .range-btn { appearance: none; border: 1px solid var(--border); border-radius: 7px; padding: 5px 9px; color: var(--text2); background: transparent; cursor: pointer; font: inherit; font-size: 12px; }
   .range-btn.active { border-color: var(--blue); color: var(--blue); background: color-mix(in srgb, var(--blue) 10%, transparent); }
-  .chart-card { border: 1px solid var(--border); border-radius: 10px; padding: 10px; margin-top: 10px; }
+  .chart-card { position: relative; border: 1px solid var(--border); border-radius: 10px; padding: 10px; margin-top: 10px; }
   .chart-caption { font-size: 12px; color: var(--text2); margin: 0 0 5px; }
   canvas.chart { width: 100%; height: 230px; display: block; }
   .legend { display: flex; gap: 8px 12px; flex-wrap: wrap; margin-top: 6px; font-size: 11px; color: var(--text2); }
   .legend-item { display: inline-flex; align-items: center; gap: 4px; }
   .legend-dot { width: 9px; height: 3px; border-radius: 4px; display: inline-block; }
+  .chart-tooltip { position: absolute; z-index: 2; display: none; min-width: 142px; max-width: 260px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--bg) 94%, #000); box-shadow: 0 4px 16px rgba(0, 0, 0, .22); color: var(--text); font-size: 12px; line-height: 1.45; pointer-events: none; }
+  .chart-tooltip-time { margin-bottom: 4px; color: var(--text2); font-variant-numeric: tabular-nums; }
+  .chart-tooltip-row { display: flex; gap: 12px; justify-content: space-between; white-space: nowrap; }
+  .chart-tooltip-value { font-variant-numeric: tabular-nums; }
   .trend-empty { color: var(--text3); font-size: 13px; padding: 18px 0; }
   .trend-note { color: var(--text3); font-size: 12px; margin-top: 8px; }
-  .history-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+  .history-table-wrap { max-height: 360px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; }
   table.history-table { min-width: 860px; font-size: 12px; white-space: nowrap; }
   .history-table th { position: sticky; top: 0; background: var(--bg); }
+  .sort-button { appearance: none; border: 0; padding: 0; color: inherit; background: transparent; font: inherit; cursor: pointer; }
+  .sort-button:hover, .sort-button:focus-visible { color: var(--blue); outline: none; }
+  .sort-button:focus-visible { text-decoration: underline; }
+  .history-caption { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .csv-export-button { appearance: none; border: 1px solid var(--border); border-radius: 7px; padding: 4px 8px; color: var(--blue); background: transparent; cursor: pointer; font: inherit; font-size: 12px; white-space: nowrap; }
+  .csv-export-button:hover, .csv-export-button:focus-visible { border-color: var(--blue); background: color-mix(in srgb, var(--blue) 10%, transparent); outline: none; }
 
   .foot { margin-top: 20px; font-size: 12px; color: var(--text3); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 </style>
@@ -95,6 +105,7 @@
   var SEV = {NORMAL: "正常", WARNING: "警告", CRITICAL: "重大", EMERGENCY: "緊急"};
   var trendRange = "24h";
   var trendCache = {};
+  var tableSort = {key: "t", dir: "desc"};
   var DISK_COLORS = ["#8f63d9", "#dd6684", "#2d9b8d", "#d68b32", "#608de3", "#aa7b53", "#d65fcb", "#6d9f46", "#c56243", "#6b7d91"];
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
@@ -162,52 +173,102 @@
   function drawChart(id, samples, series, opts) {
     var canvas = document.getElementById(id);
     if (!canvas) return;
-    var box = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
-    var w = Math.max(280, Math.floor(box.width)), h = 230;
-    canvas.width = w * dpr; canvas.height = h * dpr;
-    var ctx = canvas.getContext("2d"); ctx.scale(dpr, dpr);
-    var left = 38, right = 8, top = 12, bottom = 25, pw = w - left - right, ph = h - top - bottom;
-    var vals = [];
-    samples.forEach(function (sample) { series.forEach(function (s) { var v = metric(s.value(sample)); if (v != null) vals.push(v); }); });
-    (opts.lines || []).forEach(function (line) { if (metric(line.value) != null) vals.push(line.value); });
-    if (!vals.length) {
-      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text3");
-      ctx.font = "13px sans-serif"; ctx.fillText("この期間の有効な履歴はまだありません", left, top + 28); return;
-    }
-    var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
-    if (opts.floor != null) min = Math.min(min, opts.floor);
-    var pad = Math.max((max - min) * .12, opts.pad || 1);
-    min = Math.floor((min - pad) * 10) / 10; max = Math.ceil((max + pad) * 10) / 10;
-    if (max <= min) max = min + 1;
+    var card = canvas.parentElement;
+    var tooltip = document.createElement("div");
+    tooltip.className = "chart-tooltip";
+    card.appendChild(tooltip);
     var first = samples[0].t, last = samples[samples.length - 1].t;
     if (last <= first) last = first + 60;
-    function x(t) { return left + (t - first) * pw / (last - first); }
-    function y(v) { return top + (max - v) * ph / (max - min); }
-    var style = getComputedStyle(document.documentElement);
-    ctx.strokeStyle = style.getPropertyValue("--border"); ctx.lineWidth = 1;
-    ctx.fillStyle = style.getPropertyValue("--text3"); ctx.font = "11px sans-serif";
-    for (var g = 0; g <= 4; g++) {
-      var value = min + (max - min) * g / 4, yy = y(value);
-      ctx.beginPath(); ctx.moveTo(left, yy); ctx.lineTo(left + pw, yy); ctx.stroke();
-      ctx.fillText((Math.round(value * 10) / 10) + (opts.unit || ""), 1, yy + 4);
-    }
-    (opts.lines || []).forEach(function (line) {
-      if (metric(line.value) == null) return;
-      var yy = y(line.value); ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = line.color; ctx.beginPath(); ctx.moveTo(left, yy); ctx.lineTo(left + pw, yy); ctx.stroke(); ctx.restore();
-    });
-    series.forEach(function (s) {
-      var drawing = false; ctx.strokeStyle = s.color; ctx.lineWidth = s.width || 1.5; ctx.beginPath();
-      samples.forEach(function (sample) {
-        var v = metric(s.value(sample));
-        if (v == null) { drawing = false; return; }
-        var xx = x(sample.t), yy = y(v);
-        if (!drawing) { ctx.moveTo(xx, yy); drawing = true; } else ctx.lineTo(xx, yy);
+
+    function render(hoverIndex) {
+      var box = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+      var w = Math.max(280, Math.floor(box.width)), h = 230;
+      canvas.width = w * dpr; canvas.height = h * dpr;
+      var ctx = canvas.getContext("2d"); ctx.scale(dpr, dpr);
+      var left = 38, right = 8, top = 12, bottom = 25, pw = w - left - right, ph = h - top - bottom;
+      var vals = [];
+      samples.forEach(function (sample) { series.forEach(function (s) { var v = metric(s.value(sample)); if (v != null) vals.push(v); }); });
+      (opts.lines || []).forEach(function (line) { if (metric(line.value) != null) vals.push(line.value); });
+      if (!vals.length) {
+        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text3");
+        ctx.font = "13px sans-serif"; ctx.fillText("この期間の有効な履歴はまだありません", left, top + 28); return;
+      }
+      var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
+      if (opts.floor != null) min = Math.min(min, opts.floor);
+      var pad = Math.max((max - min) * .12, opts.pad || 1);
+      min = Math.floor((min - pad) * 10) / 10; max = Math.ceil((max + pad) * 10) / 10;
+      if (max <= min) max = min + 1;
+      function x(t) { return left + (t - first) * pw / (last - first); }
+      function y(v) { return top + (max - v) * ph / (max - min); }
+      var style = getComputedStyle(document.documentElement);
+      ctx.strokeStyle = style.getPropertyValue("--border"); ctx.lineWidth = 1;
+      ctx.fillStyle = style.getPropertyValue("--text3"); ctx.font = "11px sans-serif";
+      for (var g = 0; g <= 4; g++) {
+        var value = min + (max - min) * g / 4, yy = y(value);
+        ctx.beginPath(); ctx.moveTo(left, yy); ctx.lineTo(left + pw, yy); ctx.stroke();
+        ctx.fillText((Math.round(value * 10) / 10) + (opts.unit || ""), 1, yy + 4);
+      }
+      (opts.lines || []).forEach(function (line) {
+        if (metric(line.value) == null) return;
+        var yy = y(line.value); ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = line.color; ctx.beginPath(); ctx.moveTo(left, yy); ctx.lineTo(left + pw, yy); ctx.stroke(); ctx.restore();
       });
-      ctx.stroke();
+      series.forEach(function (s) {
+        var drawing = false; ctx.strokeStyle = s.color; ctx.lineWidth = s.width || 1.5; ctx.beginPath();
+        samples.forEach(function (sample) {
+          var v = metric(s.value(sample));
+          if (v == null) { drawing = false; return; }
+          var xx = x(sample.t), yy = y(v);
+          if (!drawing) { ctx.moveTo(xx, yy); drawing = true; } else ctx.lineTo(xx, yy);
+        });
+        ctx.stroke();
+      });
+      if (hoverIndex != null) {
+        var hoverX = x(samples[hoverIndex].t);
+        ctx.save(); ctx.strokeStyle = style.getPropertyValue("--text2"); ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+        ctx.beginPath(); ctx.moveTo(hoverX, top); ctx.lineTo(hoverX, top + ph); ctx.stroke(); ctx.restore();
+      }
+      ctx.fillStyle = style.getPropertyValue("--text3");
+      ctx.fillText(fmtChartTime(first, opts.range), left, h - 6);
+      var lastText = fmtChartTime(last, opts.range); ctx.fillText(lastText, left + pw - ctx.measureText(lastText).width, h - 6);
+    }
+
+    function nearestIndex(clientX) {
+      var rect = canvas.getBoundingClientRect(), left = 38, right = 8;
+      var ratio = (clientX - rect.left - left) / Math.max(1, rect.width - left - right);
+      var target = first + Math.max(0, Math.min(1, ratio)) * (last - first);
+      var best = 0, bestDistance = Infinity;
+      samples.forEach(function (sample, index) {
+        var distance = Math.abs(sample.t - target);
+        if (distance < bestDistance) { best = index; bestDistance = distance; }
+      });
+      return best;
+    }
+
+    function showTooltip(index, clientX) {
+      var sample = samples[index];
+      var rows = series.map(function (s) {
+        var value = metric(s.value(sample));
+        return value == null ? "" : '<div class="chart-tooltip-row"><span>' + esc(s.label) + '</span><strong class="chart-tooltip-value">' + value + esc(opts.unit || "") + '</strong></div>';
+      }).join("");
+      tooltip.innerHTML = '<div class="chart-tooltip-time">' + esc(fullStamp(sample.t)) + '</div>' + rows;
+      tooltip.style.display = "block";
+      var cardRect = card.getBoundingClientRect();
+      var desiredLeft = clientX - cardRect.left + 12;
+      tooltip.style.left = Math.max(8, Math.min(desiredLeft, card.clientWidth - tooltip.offsetWidth - 8)) + "px";
+      tooltip.style.top = (canvas.offsetTop + 8) + "px";
+    }
+
+    render(null);
+    canvas.addEventListener("pointermove", function (event) {
+      if (!samples.length) return;
+      var index = nearestIndex(event.clientX);
+      render(index);
+      showTooltip(index, event.clientX);
     });
-    ctx.fillStyle = style.getPropertyValue("--text3");
-    ctx.fillText(fmtChartTime(first, opts.range), left, h - 6);
-    var lastText = fmtChartTime(last, opts.range); ctx.fillText(lastText, left + pw - ctx.measureText(lastText).width, h - 6);
+    canvas.addEventListener("pointerleave", function () {
+      tooltip.style.display = "none";
+      render(null);
+    });
   }
 
   function trendStats(samples) {
@@ -224,31 +285,101 @@
 
   function fullStamp(epoch) {
     var d = new Date(epoch * 1000);
-    return (d.getMonth() + 1) + "/" + d.getDate() + " " + ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
+    return (d.getMonth() + 1) + "/" + d.getDate() + " " + ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) + ":" + ("0" + d.getSeconds()).slice(-2);
+  }
+
+  function csvStamp(epoch) {
+    var d = new Date(epoch * 1000);
+    function pad(value) { return ("0" + value).slice(-2); }
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+  }
+
+  function csvTextCell(value) {
+    return '"' + String(value == null ? "" : value).replace(/"/g, '""') + '"';
+  }
+
+  function csvNumberCell(value) {
+    return value == null ? "" : String(value);
+  }
+
+  function dateDescending(rows) {
+    return rows.slice().sort(function (a, b) {
+      var at = metric(a.t), bt = metric(b.t);
+      if (at == null || bt == null) return at == null && bt == null ? 0 : (at == null ? 1 : -1);
+      return bt - at;
+    });
+  }
+
+  function exportHistoryCsv(rows, diskNames) {
+    var header = ["日時", "CPU (%)", "メモリ (%)", "システム温度 (°C)"].concat(diskNames.map(function (name) { return name + " (°C)"; }));
+    var lines = [header.map(csvTextCell).join(",")];
+    dateDescending(rows).forEach(function (sample) {
+      var values = [csvStamp(sample.t), metric(sample.cpu), metric(sample.mem), metric(sample.sys)].concat(diskNames.map(function (name) { return metric((sample.disks || {})[name]); }));
+      lines.push([csvTextCell(values[0])].concat(values.slice(1).map(csvNumberCell)).join(","));
+    });
+    var blob = new Blob(["\ufeff" + lines.join("\r\n")], {type: "text/csv;charset=utf-8"});
+    var link = document.createElement("a");
+    var stamp = csvStamp(Math.floor(Date.now() / 1000)).replace(/[ :]/g, "").replace(/-/g, "");
+    link.href = URL.createObjectURL(blob);
+    link.download = "nas-monitor-history-" + stamp + ".csv";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () { URL.revokeObjectURL(link.href); }, 0);
+  }
+
+  function historySortHeader(label, key, numeric) {
+    var active = tableSort.key === key;
+    var marker = active ? (tableSort.dir === "asc" ? " ↑" : " ↓") : "";
+    var direction = active ? (tableSort.dir === "asc" ? "昇順" : "降順") : "未選択";
+    return '<th' + (numeric ? ' class="num"' : '') + '><button type="button" class="sort-button" data-sort-key="' + key + '" aria-label="' + label + 'で並べ替え。現在 ' + direction + '">' + label + marker + '</button></th>';
+  }
+
+  function historySortValue(sample, diskNames) {
+    if (tableSort.key === "t") return sample.t;
+    if (tableSort.key.indexOf("disk:") === 0) {
+      var diskIndex = Number(tableSort.key.slice(5));
+      var diskName = diskNames[diskIndex];
+      return diskName == null ? null : metric((sample.disks || {})[diskName]);
+    }
+    return metric(sample[tableSort.key]);
+  }
+
+  function sortHistoryRows(rows, diskNames) {
+    return rows.slice().sort(function (a, b) {
+      var av = historySortValue(a, diskNames);
+      var bv = historySortValue(b, diskNames);
+      var aMissing = av == null, bMissing = bv == null;
+      if (aMissing || bMissing) return aMissing === bMissing ? 0 : (aMissing ? 1 : -1);
+      if (av === bv) return b.t - a.t;
+      var order = av < bv ? -1 : 1;
+      return tableSort.dir === "asc" ? order : -order;
+    });
   }
 
   function renderTrend(data) {
     var holder = document.getElementById("trend-content");
     if (!holder) return;
     var samples = data.samples || [];
-    if (!samples.length) { holder.innerHTML = '<div class="trend-empty">履歴を記録中です。最初の1分後からこの画面に推移が表示されます。</div>'; return; }
+    if (!samples.length) { holder.innerHTML = '<div class="trend-empty">履歴を記録中です。最初の取得後からこの画面に推移が表示されます。</div>'; return; }
     var diskNames = {};
     samples.forEach(function (sample) { Object.keys(sample.disks || {}).forEach(function (name) { diskNames[name] = true; }); });
     var names = Object.keys(diskNames).sort();
-    var recent = (data.recent || samples).slice().reverse();
-    var tempSeries = [{label:"システム", color:"#2f6fdb", width:3, value:function (s) { return s.sys; }}];
+    var recent = sortHistoryRows(data.recent || samples, names);
+    var tempSeries = [{label:"システム温度", color:"#2f6fdb", width:3, value:function (s) { return s.sys; }}];
     names.forEach(function (name, i) { tempSeries.push({label:name, color:DISK_COLORS[i % DISK_COLORS.length], value:function (s) { return (s.disks || {})[name]; }}); });
-      holder.innerHTML = '<div class="chart-card"><div class="chart-caption">温度（システム・全ディスク・M.2・拡張ユニット）</div><canvas class="chart" id="temp-chart"></canvas><div class="legend" id="temp-legend"></div></div>' +
+      holder.innerHTML = '<div class="chart-card"><div class="chart-caption">温度（システム温度・全ディスク・M.2・拡張ユニット）</div><canvas class="chart" id="temp-chart"></canvas><div class="legend" id="temp-legend"></div></div>' +
       '<div class="chart-card"><div class="chart-caption">CPU・メモリ使用率</div><canvas class="chart" id="load-chart"></canvas><div class="legend"><span class="legend-item"><i class="legend-dot" style="background:#2f6fdb"></i>CPU</span><span class="legend-item"><i class="legend-dot" style="background:#d68b32"></i>メモリ</span></div></div>' +
       '<div class="chart-card"><div class="chart-caption">ディスク温度の期間サマリー</div><table class="t"><thead><tr><th>ドライブ</th><th class="num">最新</th><th class="num">最低</th><th class="num">最高</th></tr></thead><tbody>' +
       trendStats(samples).map(function (r) { return '<tr><td>' + esc(r.name) + '</td><td class="num">' + r.last + '°C</td><td class="num">' + r.min + '°C</td><td class="num">' + r.max + '°C</td></tr>'; }).join("") +
       '</tbody></table></div>' +
-      '<div class="chart-card"><div class="chart-caption">数値一覧（最新60件・新しい順）</div><div class="history-table-wrap"><table class="t history-table"><thead><tr><th>時刻</th><th class="num">CPU</th><th class="num">メモリ</th><th class="num">システム</th>' +
-      names.map(function (name) { return '<th class="num">' + esc(name) + '</th>'; }).join("") +
+      '<div class="chart-card"><div class="chart-caption history-caption"><span>数値一覧（最新60件）</span><button type="button" class="csv-export-button" id="history-csv-export">CSVを出力</button></div><div class="history-table-wrap"><table class="t history-table"><thead><tr>' +
+      historySortHeader("日時", "t", false) + historySortHeader("CPU", "cpu", true) + historySortHeader("メモリ", "mem", true) + historySortHeader("システム温度", "sys", true) +
+      names.map(function (name, i) { return historySortHeader(name, "disk:" + i, true); }).join("") +
       '</tr></thead><tbody>' + recent.map(function (sample) {
         return '<tr><td>' + esc(fullStamp(sample.t)) + '</td><td class="num">' + (metric(sample.cpu) == null ? '—' : sample.cpu + '%') + '</td><td class="num">' + (metric(sample.mem) == null ? '—' : sample.mem + '%') + '</td><td class="num">' + (metric(sample.sys) == null ? '—' : sample.sys + '°C') + '</td>' +
           names.map(function (name) { var value = metric((sample.disks || {})[name]); return '<td class="num">' + (value == null ? '—' : value + '°C') + '</td>'; }).join("") + '</tr>';
-      }).join("") + '</tbody></table></div></div><div class="trend-note">1分ごとのサンプルを最大30日保存します。取得できなかった値は空白として扱います。</div>';
+      }).join("") + '</tbody></table></div></div><div class="trend-note">ポーリングごとのサンプルを最大30日保存します。取得できなかった値は空白として扱います。</div>';
     var thresholds = data.thresholds || {};
     drawChart("temp-chart", samples, tempSeries, {range:data.range, unit:"°", pad:2, lines:[
       {value:thresholds.warn, color:"#d9930d"}, {value:thresholds.critical, color:"#d33"}, {value:thresholds.emergency, color:"#9c1f1f"}
@@ -260,6 +391,15 @@
     var legend = document.getElementById("temp-legend");
     if (legend) legend.innerHTML = tempSeries.map(function (s) { return '<span class="legend-item"><i class="legend-dot" style="background:' + s.color + '"></i>' + esc(s.label) + '</span>'; }).join("") +
       '<span class="legend-item" style="color:#d9930d">-- 警告</span><span class="legend-item" style="color:#d33">-- 重大</span><span class="legend-item" style="color:#9c1f1f">-- 緊急</span>';
+    Array.prototype.forEach.call(document.querySelectorAll(".sort-button"), function (button) {
+      button.addEventListener("click", function () {
+        var key = button.getAttribute("data-sort-key");
+        tableSort = {key: key, dir: tableSort.key === key ? (tableSort.dir === "desc" ? "asc" : "desc") : "desc"};
+        renderTrend(data);
+      });
+    });
+    var exportButton = document.getElementById("history-csv-export");
+    if (exportButton) exportButton.addEventListener("click", function () { exportHistoryCsv(data.recent || samples, names); });
   }
 
   function loadTrend(range) {
@@ -340,7 +480,7 @@
 
     html += '<div class="section"><div class="section-title">通知履歴</div><div class="hist" id="hist">読み込み中…</div></div>';
 
-    html += '<div class="foot"><span>最終更新: ' + esc(fmtTime(st.fetchedAt)) + ' · ' + esc(d.source) + '</span><span>NAS Monitor 0.5.4</span></div>';
+    html += '<div class="foot"><span>最終更新: ' + esc(fmtTime(st.fetchedAt)) + ' · ' + esc(d.source) + '</span><span>NAS Monitor 0.5.17</span></div>';
     root.innerHTML = html;
 
     Array.prototype.forEach.call(document.querySelectorAll(".range-btn"), function (button) {
