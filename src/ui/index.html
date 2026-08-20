@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>NAS Monitor</title>
+</head>
+<body style="font-family: sans-serif; padding: 24px;">
+<script>
+  location.replace("https://" + location.hostname + ":8811/");
+</script>
+<p>NAS Monitor へ移動しています… 開かない場合は <a id="lnk" href="#">こちら</a> をクリックしてください。</p>
+<p style="font-size: 12px; color: #888;">自己署名証明書の警告が表示された場合は「詳細 → 続行」を選択してください（初回のみ）。</p>
+<script>
+  document.getElementById("lnk").href = "https://" + location.hostname + ":8811/";
+</script>
+</body>
+</html>

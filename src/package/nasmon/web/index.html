@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NAS Monitor</title>
+<style>
+  :root {
+    --text: #1a1a1a; --text2: #666; --text3: #999;
+    --border: #e2e2e2; --muted: #f2f2f2; --bg: #fafafa;
+    --blue: #2f6fdb; --green: #1a9e54; --amber: #d9930d; --red: #d33;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --text: #e8e8e8; --text2: #aaa; --text3: #777; --border: #333; --muted: #262626; --bg: #161616; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", Meiryo, sans-serif; font-size: 16px; line-height: 1.5; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 20px 16px 32px; }
+  .num { font-variant-numeric: tabular-nums; }
+  a { color: var(--blue); text-decoration: none; }
+
+  .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .head-title { font-size: 20px; font-weight: 500; }
+  .head-sub { font-size: 12px; color: var(--text3); margin-top: 4px; }
+  .badges { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .st { font-size: 12px; line-height: 20px; padding: 0 8px; border-radius: 6px; }
+  .st-ok { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
+  .st-warn { color: var(--amber); background: color-mix(in srgb, var(--amber) 14%, transparent); }
+  .st-bad { color: var(--red); background: color-mix(in srgb, var(--red) 14%, transparent); }
+  .st-mut { color: var(--text2); background: var(--muted); }
+
+  .banner { margin-top: 16px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 12px; color: var(--amber); background: color-mix(in srgb, var(--amber) 8%, transparent); font-size: 14px; }
+
+  .gauge-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 16px; }
+  .gauge-card { border: 1px solid var(--border); border-radius: 12px; padding: 12px; text-align: center; background: transparent; }
+  .gauge-val { font-size: 28px; font-weight: 500; line-height: 1.2; }
+  .gauge-label { font-size: 12px; color: var(--text3); margin-top: 4px; }
+  .ring-bg { stroke: var(--muted); }
+  .ring-fg { stroke: var(--blue); stroke-linecap: round; transition: stroke-dashoffset .3s ease; }
+  .ring-warn { stroke: var(--amber); }
+
+  .section { margin-top: 24px; }
+  .section-title { font-size: 14px; font-weight: 500; margin-bottom: 8px; }
+
+  .vol-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .vol-row:last-child { border-bottom: none; }
+  .vol-name { flex: 0 0 110px; font-size: 14px; }
+  .vol-bar { flex: 1; height: 8px; border-radius: 999px; background: var(--muted); overflow: hidden; }
+  .vol-fill { height: 100%; border-radius: 999px; background: var(--blue); }
+  .vol-fill.hot { background: var(--amber); }
+  .vol-meta { font-size: 12px; color: var(--text2); text-align: right; min-width: 140px; }
+
+  table.t { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .t th { font-size: 12px; font-weight: 400; color: var(--text3); text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+  .t td { padding: 8px; border-bottom: 1px solid var(--border); }
+  .t tr:last-child td { border-bottom: none; }
+  .t td.num, .t th.num { text-align: right; }
+
+  .net-row { display: flex; gap: 24px; flex-wrap: wrap; }
+  .net-item { display: flex; align-items: baseline; gap: 8px; }
+  .net-label { font-size: 12px; color: var(--text3); }
+  .net-val { font-size: 20px; font-weight: 500; }
+  .net-unit { font-size: 12px; color: var(--text2); }
+
+  .hist { font-size: 13px; }
+  .hist-row { display: flex; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .hist-row:last-child { border-bottom: none; }
+  .hist-time { flex: 0 0 150px; color: var(--text3); font-size: 12px; }
+  .hist-kind { flex: 0 0 110px; font-weight: 500; }
+  .hist-detail { flex: 1; color: var(--text2); }
+
+  .trend-tools { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .range-btn { appearance: none; border: 1px solid var(--border); border-radius: 7px; padding: 5px 9px; color: var(--text2); background: transparent; cursor: pointer; font: inherit; font-size: 12px; }
+  .range-btn.active { border-color: var(--blue); color: var(--blue); background: color-mix(in srgb, var(--blue) 10%, transparent); }
+  .chart-card { border: 1px solid var(--border); border-radius: 10px; padding: 10px; margin-top: 10px; }
+  .chart-caption { font-size: 12px; color: var(--text2); margin: 0 0 5px; }
+  canvas.chart { width: 100%; height: 230px; display: block; }
+  .legend { display: flex; gap: 8px 12px; flex-wrap: wrap; margin-top: 6px; font-size: 11px; color: var(--text2); }
+  .legend-item { display: inline-flex; align-items: center; gap: 4px; }
+  .legend-dot { width: 9px; height: 3px; border-radius: 4px; display: inline-block; }
+  .trend-empty { color: var(--text3); font-size: 13px; padding: 18px 0; }
+  .trend-note { color: var(--text3); font-size: 12px; margin-top: 8px; }
+  .history-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+  table.history-table { min-width: 860px; font-size: 12px; white-space: nowrap; }
+  .history-table th { position: sticky; top: 0; background: var(--bg); }
+
+  .foot { margin-top: 20px; font-size: 12px; color: var(--text3); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<div class="wrap" id="root"></div>
+<script>
+(function () {
+  var CIRC = 188.5;
+  var SEV = {NORMAL: "正常", WARNING: "警告", CRITICAL: "重大", EMERGENCY: "緊急"};
+  var trendRange = "24h";
+  var trendCache = {};
+  var DISK_COLORS = ["#8f63d9", "#dd6684", "#2d9b8d", "#d68b32", "#608de3", "#aa7b53", "#d65fcb", "#6d9f46", "#c56243", "#6b7d91"];
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c];
+    });
+  }
+  function fmtTB(b) { return (b / 1e12).toFixed(1) + " TB"; }
+  function fmtRate(bps) {
+    if (bps >= 1e6) return {v: (bps / 1e6).toFixed(1), u: "MB/s"};
+    if (bps >= 1e3) return {v: (bps / 1e3).toFixed(1), u: "KB/s"};
+    return {v: String(Math.round(bps)), u: "B/s"};
+  }
+  function fmtUptime(sec) {
+    var d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
+    var p = [];
+    if (d) p.push(d + "日");
+    if (h) p.push(h + "時間");
+    p.push(m + "分");
+    return p.join(" ");
+  }
+  function fmtTime(iso) {
+    try {
+      var d = new Date(iso);
+      return d.getHours() + ":" + ("0" + d.getMinutes()).slice(-2) + ":" + ("0" + d.getSeconds()).slice(-2);
+    } catch (e) { return iso; }
+  }
+  function gauge(label, valueText, pct, warn) {
+    var off = (CIRC * (1 - Math.min(Math.max(pct, 0), 100) / 100)).toFixed(1);
+    return '<div class="gauge-card">' +
+      '<svg width="72" height="72" viewBox="0 0 72 72" style="display:block;margin:0 auto 8px">' +
+      '<circle class="ring-bg" cx="36" cy="36" r="30" fill="none" stroke-width="8"></circle>' +
+      '<circle class="ring-fg' + (warn ? " ring-warn" : "") + '" cx="36" cy="36" r="30" fill="none" stroke-width="8" stroke-dasharray="188.5" stroke-dashoffset="' + off + '" transform="rotate(-90 36 36)"></circle>' +
+      '</svg>' +
+      '<div class="gauge-val num">' + esc(valueText) + '</div>' +
+      '<div class="gauge-label">' + esc(label) + '</div></div>';
+  }
+  function statusBadge(status) {
+    if (status === "normal") return '<span class="st st-ok">正常</span>';
+    if (status === "attention" || status === "warning") return '<span class="st st-warn">注意</span>';
+    return '<span class="st st-bad">' + esc(status) + '</span>';
+  }
+  function sevBadge(sev) {
+    var name = SEV[sev] || sev || "—";
+    if (sev === "NORMAL") return '<span class="st st-ok">' + name + '</span>';
+    if (sev === "WARNING") return '<span class="st st-warn">' + name + '</span>';
+    if (sev === "CRITICAL" || sev === "EMERGENCY") return '<span class="st st-bad">' + name + '</span>';
+    return '<span class="st st-mut">' + name + '</span>';
+  }
+  function notifyBadge(st) {
+    if (st.notifyEnabled === false) return '<span class="st st-mut">🔕 通知停止中</span>';
+    if (st.hushUntil && Date.now() / 1000 < st.hushUntil) return '<span class="st st-mut">🔕 1時間停止中</span>';
+    return "";
+  }
+
+  function spanLabel(range) {
+    return {"1h":"1時間", "6h":"6時間", "24h":"24時間", "7d":"7日", "30d":"30日"}[range] || range;
+  }
+  function fmtChartTime(epoch, range) {
+    var d = new Date(epoch * 1000);
+    if (range === "7d" || range === "30d") return (d.getMonth() + 1) + "/" + d.getDate();
+    return ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
+  }
+  function metric(value) { return typeof value === "number" && isFinite(value) ? value : null; }
+
+  function drawChart(id, samples, series, opts) {
+    var canvas = document.getElementById(id);
+    if (!canvas) return;
+    var box = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    var w = Math.max(280, Math.floor(box.width)), h = 230;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    var ctx = canvas.getContext("2d"); ctx.scale(dpr, dpr);
+    var left = 38, right = 8, top = 12, bottom = 25, pw = w - left - right, ph = h - top - bottom;
+    var vals = [];
+    samples.forEach(function (sample) { series.forEach(function (s) { var v = metric(s.value(sample)); if (v != null) vals.push(v); }); });
+    (opts.lines || []).forEach(function (line) { if (metric(line.value) != null) vals.push(line.value); });
+    if (!vals.length) {
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text3");
+      ctx.font = "13px sans-serif"; ctx.fillText("この期間の有効な履歴はまだありません", left, top + 28); return;
+    }
+    var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
+    if (opts.floor != null) min = Math.min(min, opts.floor);
+    var pad = Math.max((max - min) * .12, opts.pad || 1);
+    min = Math.floor((min - pad) * 10) / 10; max = Math.ceil((max + pad) * 10) / 10;
+    if (max <= min) max = min + 1;
+    var first = samples[0].t, last = samples[samples.length - 1].t;
+    if (last <= first) last = first + 60;
+    function x(t) { return left + (t - first) * pw / (last - first); }
+    function y(v) { return top + (max - v) * ph / (max - min); }
+    var style = getComputedStyle(document.documentElement);
+    ctx.strokeStyle = style.getPropertyValue("--border"); ctx.lineWidth = 1;
+    ctx.fillStyle = style.getPropertyValue("--text3"); ctx.font = "11px sans-serif";
+    for (var g = 0; g <= 4; g++) {
+      var value = min + (max - min) * g / 4, yy = y(value);
+      ctx.beginPath(); ctx.moveTo(left, yy); ctx.lineTo(left + pw, yy); ctx.stroke();
+      ctx.fillText((Math.round(value * 10) / 10) + (opts.unit || ""), 1, yy + 4);
+    }
+    (opts.lines || []).forEach(function (line) {
+      if (metric(line.value) == null) return;
+      var yy = y(line.value); ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = line.color; ctx.beginPath(); ctx.moveTo(left, yy); ctx.lineTo(left + pw, yy); ctx.stroke(); ctx.restore();
+    });
+    series.forEach(function (s) {
+      var drawing = false; ctx.strokeStyle = s.color; ctx.lineWidth = s.width || 1.5; ctx.beginPath();
+      samples.forEach(function (sample) {
+        var v = metric(s.value(sample));
+        if (v == null) { drawing = false; return; }
+        var xx = x(sample.t), yy = y(v);
+        if (!drawing) { ctx.moveTo(xx, yy); drawing = true; } else ctx.lineTo(xx, yy);
+      });
+      ctx.stroke();
+    });
+    ctx.fillStyle = style.getPropertyValue("--text3");
+    ctx.fillText(fmtChartTime(first, opts.range), left, h - 6);
+    var lastText = fmtChartTime(last, opts.range); ctx.fillText(lastText, left + pw - ctx.measureText(lastText).width, h - 6);
+  }
+
+  function trendStats(samples) {
+    var rows = {};
+    samples.forEach(function (sample) {
+      Object.keys(sample.disks || {}).forEach(function (name) {
+        var value = metric(sample.disks[name]); if (value == null) return;
+        var r = rows[name] || {name:name, min:value, max:value, last:value};
+        r.min = Math.min(r.min, value); r.max = Math.max(r.max, value); r.last = value; rows[name] = r;
+      });
+    });
+    return Object.keys(rows).map(function (name) { return rows[name]; }).sort(function (a,b) { return b.last - a.last; });
+  }
+
+  function fullStamp(epoch) {
+    var d = new Date(epoch * 1000);
+    return (d.getMonth() + 1) + "/" + d.getDate() + " " + ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
+  }
+
+  function renderTrend(data) {
+    var holder = document.getElementById("trend-content");
+    if (!holder) return;
+    var samples = data.samples || [];
+    if (!samples.length) { holder.innerHTML = '<div class="trend-empty">履歴を記録中です。最初の1分後からこの画面に推移が表示されます。</div>'; return; }
+    var diskNames = {};
+    samples.forEach(function (sample) { Object.keys(sample.disks || {}).forEach(function (name) { diskNames[name] = true; }); });
+    var names = Object.keys(diskNames).sort();
+    var recent = (data.recent || samples).slice().reverse();
+    var tempSeries = [{label:"システム", color:"#2f6fdb", width:3, value:function (s) { return s.sys; }}];
+    names.forEach(function (name, i) { tempSeries.push({label:name, color:DISK_COLORS[i % DISK_COLORS.length], value:function (s) { return (s.disks || {})[name]; }}); });
+      holder.innerHTML = '<div class="chart-card"><div class="chart-caption">温度（システム・全ディスク・M.2・拡張ユニット）</div><canvas class="chart" id="temp-chart"></canvas><div class="legend" id="temp-legend"></div></div>' +
+      '<div class="chart-card"><div class="chart-caption">CPU・メモリ使用率</div><canvas class="chart" id="load-chart"></canvas><div class="legend"><span class="legend-item"><i class="legend-dot" style="background:#2f6fdb"></i>CPU</span><span class="legend-item"><i class="legend-dot" style="background:#d68b32"></i>メモリ</span></div></div>' +
+      '<div class="chart-card"><div class="chart-caption">ディスク温度の期間サマリー</div><table class="t"><thead><tr><th>ドライブ</th><th class="num">最新</th><th class="num">最低</th><th class="num">最高</th></tr></thead><tbody>' +
+      trendStats(samples).map(function (r) { return '<tr><td>' + esc(r.name) + '</td><td class="num">' + r.last + '°C</td><td class="num">' + r.min + '°C</td><td class="num">' + r.max + '°C</td></tr>'; }).join("") +
+      '</tbody></table></div>' +
+      '<div class="chart-card"><div class="chart-caption">数値一覧（最新60件・新しい順）</div><div class="history-table-wrap"><table class="t history-table"><thead><tr><th>時刻</th><th class="num">CPU</th><th class="num">メモリ</th><th class="num">システム</th>' +
+      names.map(function (name) { return '<th class="num">' + esc(name) + '</th>'; }).join("") +
+      '</tr></thead><tbody>' + recent.map(function (sample) {
+        return '<tr><td>' + esc(fullStamp(sample.t)) + '</td><td class="num">' + (metric(sample.cpu) == null ? '—' : sample.cpu + '%') + '</td><td class="num">' + (metric(sample.mem) == null ? '—' : sample.mem + '%') + '</td><td class="num">' + (metric(sample.sys) == null ? '—' : sample.sys + '°C') + '</td>' +
+          names.map(function (name) { var value = metric((sample.disks || {})[name]); return '<td class="num">' + (value == null ? '—' : value + '°C') + '</td>'; }).join("") + '</tr>';
+      }).join("") + '</tbody></table></div></div><div class="trend-note">1分ごとのサンプルを最大30日保存します。取得できなかった値は空白として扱います。</div>';
+    var thresholds = data.thresholds || {};
+    drawChart("temp-chart", samples, tempSeries, {range:data.range, unit:"°", pad:2, lines:[
+      {value:thresholds.warn, color:"#d9930d"}, {value:thresholds.critical, color:"#d33"}, {value:thresholds.emergency, color:"#9c1f1f"}
+    ]});
+    drawChart("load-chart", samples, [
+      {label:"CPU", color:"#2f6fdb", width:2, value:function (s) { return s.cpu; }},
+      {label:"メモリ", color:"#d68b32", width:2, value:function (s) { return s.mem; }}
+    ], {range:data.range, unit:"%", floor:0, pad:3});
+    var legend = document.getElementById("temp-legend");
+    if (legend) legend.innerHTML = tempSeries.map(function (s) { return '<span class="legend-item"><i class="legend-dot" style="background:' + s.color + '"></i>' + esc(s.label) + '</span>'; }).join("") +
+      '<span class="legend-item" style="color:#d9930d">-- 警告</span><span class="legend-item" style="color:#d33">-- 重大</span><span class="legend-item" style="color:#9c1f1f">-- 緊急</span>';
+  }
+
+  function loadTrend(range) {
+    trendRange = range || trendRange;
+    if (trendCache[trendRange] && Date.now() - trendCache[trendRange].loadedAt < 60000) { renderTrend(trendCache[trendRange]); return; }
+    fetch("/api/timeseries?range=" + encodeURIComponent(trendRange), {cache:"no-store"})
+      .then(function (r) { return r.json(); })
+      .then(function (data) { data.loadedAt = Date.now(); trendCache[trendRange] = data; renderTrend(data); })
+      .catch(function () { var el = document.getElementById("trend-content"); if (el) el.innerHTML = '<div class="trend-empty">履歴を読み込めませんでした。</div>'; });
+  }
+
+  function renderStatus(st) {
+    var root = document.getElementById("root");
+    if (!st.configured) {
+      root.innerHTML = '<div class="head"><div class="head-title">NAS Monitor</div></div>' +
+        '<div class="banner">監視対象が未設定です。<a href="/config">設定画面</a>でメイン機の URL・ユーザー名・パスワードを登録してください。</div>';
+      return;
+    }
+    var d = st.data;
+    if (!d) {
+      root.innerHTML = '<div class="head"><div class="head-title">NAS Monitor</div></div>' +
+        '<div class="banner">データを取得中です…（' + esc(st.error || "初回収集の待機中") + '）</div>';
+      return;
+    }
+    var disks = d.disks || [];
+    var volumes = d.volumes || [];
+    var maxDiskTemp = disks.reduce(function (m, x) { return x.temp != null && x.temp > m ? x.temp : m; }, 0);
+    var rx = fmtRate(d.network.rxBps), tx = fmtRate(d.network.txBps);
+
+    var html = "";
+    html += '<div class="head"><div>' +
+      '<div class="head-title">' + esc(d.model) + '</div>' +
+      '<div class="head-sub">' + esc(d.dsm) + ' · 稼働時間 ' + esc(fmtUptime(d.uptimeSec)) + '</div></div>' +
+      '<div class="badges">' +
+      sevBadge(st.severity) +
+      notifyBadge(st) +
+      '<a class="st st-mut" href="/config">設定</a>' +
+      '</div></div>';
+
+    if (!st.ok) {
+      html += '<div class="banner">最新の取得に失敗しました（' + esc(st.error || "") + '）。最後に取得できたデータを表示しています。</div>';
+    }
+
+    html += '<div class="gauge-grid">' +
+      gauge("CPU", d.cpu.total + "%", d.cpu.total, d.cpu.total >= 90) +
+      gauge("メモリ", d.memory.usage + "%", d.memory.usage, d.memory.usage >= 90) +
+      gauge("システム温度", (d.temperature != null ? d.temperature + "°C" : "—"), d.temperature != null ? d.temperature : 0, !!d.temperatureWarn) +
+      gauge("ディスク最高温度", maxDiskTemp + "°C", maxDiskTemp, maxDiskTemp >= 50) +
+      '</div>';
+
+    html += '<div class="section"><div class="section-title">推移履歴</div><div class="trend-tools">' +
+      ["1h", "6h", "24h", "7d", "30d"].map(function (range) { return '<button class="range-btn' + (range === trendRange ? ' active' : '') + '" data-range="' + range + '">' + spanLabel(range) + '</button>'; }).join("") +
+      '</div><div id="trend-content"><div class="trend-empty">履歴を読み込み中…</div></div></div>';
+
+    html += '<div class="section"><div class="section-title">ストレージ</div>';
+    volumes.forEach(function (v) {
+      html += '<div class="vol-row">' +
+        '<div class="vol-name">' + esc(v.name) + '</div>' +
+        '<div class="vol-bar"><div class="vol-fill' + (v.percent >= 90 ? " hot" : "") + '" style="width:' + Math.min(v.percent, 100) + '%"></div></div>' +
+        '<div class="vol-meta num">' + fmtTB(v.usedBytes) + ' / ' + fmtTB(v.totalBytes) + '（' + v.percent + '%）</div></div>';
+    });
+    html += '</div>';
+
+    html += '<div class="section"><div class="section-title">ディスク（' + disks.length + '台）</div>' +
+      '<table class="t"><thead><tr><th>ドライブ</th><th>モデル</th><th class="num">温度</th><th>状態</th></tr></thead><tbody>';
+    disks.forEach(function (x) {
+      html += '<tr><td>' + esc(x.name) + '</td>' +
+        '<td>' + esc(x.model) + (x.ssd ? "（SSD キャッシュ）" : "") + '</td>' +
+        '<td class="num">' + (x.temp != null ? x.temp + "°C" : "—") + '</td>' +
+        '<td>' + statusBadge(x.status) + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+
+    html += '<div class="section"><div class="section-title">ネットワーク</div><div class="net-row">' +
+      '<div class="net-item"><span class="net-label">受信</span><span class="net-val num">' + rx.v + '</span><span class="net-unit">' + rx.u + '</span></div>' +
+      '<div class="net-item"><span class="net-label">送信</span><span class="net-val num">' + tx.v + '</span><span class="net-unit">' + tx.u + '</span></div>' +
+      '</div></div>';
+
+    html += '<div class="section"><div class="section-title">通知履歴</div><div class="hist" id="hist">読み込み中…</div></div>';
+
+    html += '<div class="foot"><span>最終更新: ' + esc(fmtTime(st.fetchedAt)) + ' · ' + esc(d.source) + '</span><span>NAS Monitor 0.5.4</span></div>';
+    root.innerHTML = html;
+
+    Array.prototype.forEach.call(document.querySelectorAll(".range-btn"), function (button) {
+      button.addEventListener("click", function () { trendRange = button.getAttribute("data-range"); renderStatus(st); });
+    });
+    loadTrend(trendRange);
+
+    fetch("/api/history", {cache: "no-store"})
+      .then(function (r) { return r.json(); })
+      .then(function (h) {
+        var el = document.getElementById("hist");
+        if (!el) return;
+        var entries = (h.entries || []).slice(-10).reverse();
+        if (!entries.length) { el.innerHTML = '<div class="hist-detail">履歴はまだありません</div>'; return; }
+        el.innerHTML = entries.map(function (e) {
+          return '<div class="hist-row"><span class="hist-time">' + esc(e.time) + '</span>' +
+            '<span class="hist-kind">' + esc(e.kind) + (e.sent === false ? "（未送信）" : "") + '</span>' +
+            '<span class="hist-detail">' + esc(e.detail) + '</span></div>';
+        }).join("");
+      })
+      .catch(function () {});
+  }
+
+  function tick() {
+    fetch("/api/status", {cache: "no-store"})
+      .then(function (r) { return r.json(); })
+      .then(renderStatus)
+      .catch(function () {});
+  }
+  tick();
+  setInterval(tick, 15000);
+})();
+</script>
+</body>
+</html>

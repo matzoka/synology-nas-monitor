@@ -1,0 +1,23 @@
+#!/bin/sh
+# Restore monitoring configuration and the TLS certificate after the new
+# package has been installed.
+PKG_DIR="/var/packages/nasmon"
+BACKUP_DIR="$SYNOPKG_TEMP_UPGRADE_FOLDER/nasmon-state"
+
+if [ -d "$BACKUP_DIR" ]; then
+  mkdir -p "$PKG_DIR/etc" "$PKG_DIR/var" || exit 1
+  for name in config.enc key server.crt server.key; do
+    if [ -f "$BACKUP_DIR/$name" ]; then
+      cp -p "$BACKUP_DIR/$name" "$PKG_DIR/etc/$name" || exit 1
+    fi
+  done
+  for name in state.json history.jsonl; do
+    if [ -f "$BACKUP_DIR/$name" ]; then
+      cp -p "$BACKUP_DIR/$name" "$PKG_DIR/var/$name" || exit 1
+    fi
+  done
+fi
+
+chmod 600 "$PKG_DIR/etc/config.enc" "$PKG_DIR/etc/key" "$PKG_DIR/etc/server.key" 2>/dev/null
+chmod 644 "$PKG_DIR/etc/server.crt" 2>/dev/null
+exit 0

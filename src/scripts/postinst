@@ -1,0 +1,4 @@
+#!/bin/sh
+PKG_DIR="/var/packages/nasmon"
+mkdir -p "$PKG_DIR/var" "$PKG_DIR/etc"
+exit 0

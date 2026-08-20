@@ -1,0 +1,14 @@
+{
+    ".url": {
+        "SYNO.SDS.NASMonitor": {
+            "type": "url",
+            "allUsers": true,
+            "title": "NAS Monitor",
+            "desc": "Monitor a remote Synology NAS via SYNO.API",
+            "icon": "images/icon_{0}.png",
+            "url": "/",
+            "protocol": "https",
+            "port": "8811"
+        }
+    }
+}

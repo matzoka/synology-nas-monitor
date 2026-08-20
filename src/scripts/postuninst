@@ -1,0 +1,13 @@
+#!/bin/sh
+PKG_DIR="/var/packages/nasmon"
+
+# DSM runs the old package's postuninst script as part of an upgrade.  Only
+# remove persistent monitoring data during a real uninstall.
+if [ "$SYNOPKG_PKG_STATUS" = "UNINSTALL" ]; then
+  rm -f "$PKG_DIR/etc/config.enc" "$PKG_DIR/etc/key" \
+        "$PKG_DIR/etc/server.crt" "$PKG_DIR/etc/server.key" \
+        "$PKG_DIR/var/status.json" "$PKG_DIR/var/state.json" \
+        "$PKG_DIR/var/history.jsonl" 2>/dev/null
+  rm -rf "$PKG_DIR/var/telemetry" 2>/dev/null
+fi
+exit 0

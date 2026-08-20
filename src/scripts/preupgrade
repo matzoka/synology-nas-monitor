@@ -1,0 +1,17 @@
+#!/bin/sh
+# Save the persistent state before DSM invokes the old package's postuninst.
+# This also protects upgrades from versions that removed their settings
+# unconditionally during the upgrade lifecycle.
+PKG_DIR="/var/packages/nasmon"
+BACKUP_DIR="$SYNOPKG_TEMP_UPGRADE_FOLDER/nasmon-state"
+
+mkdir -p "$BACKUP_DIR" || exit 1
+for file in \
+  "$PKG_DIR/etc/config.enc" "$PKG_DIR/etc/key" \
+  "$PKG_DIR/etc/server.crt" "$PKG_DIR/etc/server.key" \
+  "$PKG_DIR/var/state.json" "$PKG_DIR/var/history.jsonl"; do
+  if [ -f "$file" ]; then
+    cp -p "$file" "$BACKUP_DIR/" || exit 1
+  fi
+done
+exit 0

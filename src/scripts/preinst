@@ -1,0 +1,10 @@
+#!/bin/sh
+if [ ! -x /usr/bin/python3 ]; then
+  echo "NAS Monitor requires DSM built-in Python3 (/usr/bin/python3), but it was not found." >> "$SYNOPKG_TEMP_LOGFILE"
+  exit 1
+fi
+if ! command -v openssl >/dev/null 2>&1; then
+  echo "NAS Monitor requires openssl, but it was not found." >> "$SYNOPKG_TEMP_LOGFILE"
+  exit 1
+fi
+exit 0

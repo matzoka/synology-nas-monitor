@@ -1,0 +1,42 @@
+#!/bin/sh
+PKG_DIR="/var/packages/nasmon"
+APP_DIR="$PKG_DIR/target/nasmon"
+PID_FILE="$PKG_DIR/var/nasmon.pid"
+LOG_FILE="$PKG_DIR/var/nasmon.log"
+
+is_running() {
+  [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null
+}
+
+case "$1" in
+  start)
+    if is_running; then
+      exit 0
+    fi
+    cd "$APP_DIR" || exit 1
+    nohup /usr/bin/python3 server.py >> "$LOG_FILE" 2>&1 &
+    echo $! > "$PID_FILE"
+    exit 0
+    ;;
+  stop)
+    if [ -f "$PID_FILE" ]; then
+      kill "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null
+      rm -f "$PID_FILE"
+    fi
+    exit 0
+    ;;
+  status)
+    if is_running; then
+      exit 0
+    fi
+    exit 1
+    ;;
+  log)
+    echo "$LOG_FILE"
+    exit 0
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|status|log}" >&2
+    exit 1
+    ;;
+esac

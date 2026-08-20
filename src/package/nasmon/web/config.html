@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NAS Monitor 設定</title>
+<style>
+  :root {
+    --text: #1a1a1a; --text2: #666; --text3: #999;
+    --border: #e2e2e2; --muted: #f2f2f2; --bg: #fafafa;
+    --blue: #2f6fdb; --red: #d33; --green: #1a9e54;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --text: #e8e8e8; --text2: #aaa; --text3: #777; --border: #333; --muted: #262626; --bg: #161616; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", Meiryo, sans-serif; font-size: 16px; line-height: 1.5; }
+  .wrap { max-width: 520px; margin: 0 auto; padding: 32px 16px 48px; }
+  h1 { font-size: 20px; font-weight: 500; margin: 0 0 4px; }
+  h2 { font-size: 15px; font-weight: 500; margin: 28px 0 12px; padding-top: 20px; border-top: 1px solid var(--border); }
+  .sub { font-size: 12px; color: var(--text3); margin-bottom: 24px; }
+  .field { display: block; margin-bottom: 16px; }
+  .label { display: block; font-size: 14px; color: var(--text2); margin-bottom: 4px; }
+  input[type=text], input[type=password], input[type=number] {
+    width: 100%; padding: 8px 12px; font: inherit; color: var(--text);
+    background: transparent; border: 1px solid var(--border); border-radius: 10px;
+  }
+  input:focus { outline: 2px solid var(--blue); outline-offset: -1px; }
+  .hint { font-size: 12px; color: var(--text3); margin-top: 4px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .msg { padding: 12px 16px; border-radius: 12px; font-size: 14px; margin-bottom: 16px; border: 1px solid var(--border); }
+  .error { color: var(--red); background: color-mix(in srgb, var(--red) 8%, transparent); }
+  .saved { color: var(--green); background: color-mix(in srgb, var(--green) 8%, transparent); }
+  .row { display: flex; gap: 12px; align-items: center; margin-top: 24px; flex-wrap: wrap; }
+  button.primary {
+    padding: 8px 20px; font: inherit; font-weight: 500; cursor: pointer;
+    color: #fff; background: var(--text); border: none; border-radius: 10px;
+  }
+  button.secondary {
+    padding: 8px 16px; font: inherit; cursor: pointer;
+    color: var(--text); background: transparent; border: 1px solid var(--border); border-radius: 10px;
+  }
+  a.back { color: var(--blue); text-decoration: none; font-size: 14px; }
+  .note { margin-top: 24px; font-size: 12px; color: var(--text3); }
+  #testResult { font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>NAS Monitor 設定</h1>
+  <div class="sub">認証情報と Bot Token は暗号化してこのパッケージ内にのみ保存されます。Token は保存後に画面へ再表示されません。</div>
+  <div class="msg error" id="err" style="display:none"></div>
+  <div class="msg saved" id="saved" style="display:none">保存しました。</div>
+
+  <form method="POST" action="/config">
+    <h2>監視対象（SYNO API）</h2>
+    <label class="field">
+      <span class="label">DSM の URL</span>
+      <input type="text" name="baseUrl" id="baseUrl" placeholder="https://監視対象NASのIPアドレス:ポート番号">
+    </label>
+    <label class="field">
+      <span class="label">ユーザー名</span>
+      <input type="text" name="account" id="account" placeholder="監視用アカウント">
+    </label>
+    <label class="field">
+      <span class="label">パスワード</span>
+      <input type="password" name="passwd" id="passwd">
+      <div class="hint">空欄なら既存のパスワードを維持します。</div>
+    </label>
+
+    <h2>温度アラート設定（システム温度）</h2>
+    <div class="grid3">
+      <label class="field">
+        <span class="label">警告（°C）</span>
+        <input type="number" name="warnTemp" id="warnTemp" min="30" max="110" step="1">
+      </label>
+      <label class="field">
+        <span class="label">重大（°C）</span>
+        <input type="number" name="critTemp" id="critTemp" min="30" max="120" step="1">
+      </label>
+      <label class="field">
+        <span class="label">緊急（°C）</span>
+        <input type="number" name="emergTemp" id="emergTemp" min="30" max="130" step="1">
+      </label>
+    </div>
+    <div class="grid2">
+      <label class="field">
+        <span class="label">ポーリング間隔（秒）</span>
+        <input type="number" name="pollSec" id="pollSec" min="5" max="3600" step="1">
+      </label>
+      <label class="field">
+        <span class="label">重大値接近の予測時間（秒）</span>
+        <input type="number" name="predictSec" id="predictSec" min="30" max="3600" step="1">
+        <div class="hint">この時間内に重大値へ到達見込みの場合に即時通知します。</div>
+      </label>
+    </div>
+
+    <h2>Telegram 通知</h2>
+    <label class="field">
+      <span class="label">Telegram Bot Token</span>
+      <input type="password" name="tgToken" id="tgToken" autocomplete="off">
+      <div class="hint">空欄なら既存の Token を維持します。保存済みの Token は再表示されません。</div>
+    </label>
+    <label class="field">
+      <span class="label">Telegram送信先 Chat ID（個人通知ではUser IDと同じ）</span>
+      <input type="text" name="chatId" id="chatId" placeholder="123456789">
+    </label>
+    <div class="row">
+      <button type="button" class="secondary" id="testBtn">Telegram通知テスト</button>
+      <span id="testResult"></span>
+    </div>
+
+    <div class="row">
+      <button type="submit" class="primary">保存</button>
+      <a class="back" href="/">ダッシュボードへ戻る</a>
+    </div>
+  </form>
+  <div class="note">NAS 接続情報を変更した場合のみ、保存前に接続テストを行います。Telegram との通信確認は「Telegram通知テスト」を押した時だけ行います。</div>
+</div>
+<script>
+(function () {
+  var q = new URLSearchParams(location.search);
+  var err = q.get("error");
+  if (err) {
+    var el = document.getElementById("err");
+    el.textContent = err;
+    el.style.display = "block";
+  }
+  if (q.get("saved")) {
+    document.getElementById("saved").style.display = "block";
+  }
+  fetch("/api/config", {cache: "no-store"})
+    .then(function (r) { return r.json(); })
+    .then(function (c) {
+      document.getElementById("baseUrl").value = c.baseUrl || "";
+      document.getElementById("account").value = c.account || "";
+      document.getElementById("chatId").value = c.chatId || "";
+      document.getElementById("warnTemp").value = c.warnTemp;
+      document.getElementById("critTemp").value = c.critTemp;
+      document.getElementById("emergTemp").value = c.emergTemp;
+      document.getElementById("pollSec").value = c.pollSec;
+      document.getElementById("predictSec").value = c.predictSec;
+    })
+    .catch(function () {});
+
+  document.getElementById("testBtn").addEventListener("click", function () {
+    var out = document.getElementById("testResult");
+    out.textContent = "送信中…";
+    fetch("/telegram/test", {method: "POST"})
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        out.textContent = d.ok ? "✅ テスト通知を送信しました" : "❌ " + (d.error || "送信失敗");
+      })
+      .catch(function () { out.textContent = "❌ 通信失敗"; });
+  });
+})();
+</script>
+</body>
+</html>

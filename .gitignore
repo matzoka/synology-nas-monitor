@@ -1,0 +1,15 @@
+dist/
+__pycache__/
+*.py[cod]
+*.spk
+*.tgz
+
+# Runtime configuration and credentials must never be committed.
+config.enc
+key
+server.crt
+server.key
+telemetry/
+history.jsonl
+state.json
+status.json
