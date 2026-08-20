@@ -40,6 +40,9 @@ check("snapshot dimensions", width == 1200 and height >= 1200)
 check("PNG has content", len(png) > 1000)
 check("snapshot button is present", any(button.get("callback_data") == "snapshot_now"
                                          for row in telegram.BUTTONS["inline_keyboard"] for button in row))
+check("NAS bay label", snapshot.drive_label({"name": "ディスク 2", "unit": "DS723+"}, 2) == "NAS BAY 2")
+check("expansion bay label", snapshot.drive_label({"name": "ディスク 4 (DX517-1)", "unit": "DX517-1"}, 6) == "DX517-1 BAY 4")
+check("M.2 label", snapshot.drive_label({"name": "M.2 ドライブ 1", "unit": "DS723+"}, 8) == "M2 DRIVE 1")
 
 sent = {}
 old_upload = telegram._post_multipart
@@ -56,6 +59,16 @@ finally:
 check("sendPhoto endpoint", sent.get("method") == "sendPhoto")
 check("photo payload", sent.get("content", b"").startswith(b"\x89PNG"))
 check("photo has controls", "snapshot_now" in sent.get("fields", {}).get("reply_markup", ""))
+
+edits = []
+old_post = telegram._post
+try:
+    telegram._post = lambda token, method, payload, timeout=10: edits.append((method, payload)) or {"message_id": 1}
+    telegram.edit_message_caption("test-token", "99", 1, "updated")
+finally:
+    telegram._post = old_post
+check("edited caption keeps controls", edits[-1][0] == "editMessageCaption" and
+      edits[-1][1].get("reply_markup", {}).get("inline_keyboard") == telegram.BUTTONS["inline_keyboard"])
 
 print()
 print("FAILED" if failed else "ALL SNAPSHOT TESTS PASSED")
