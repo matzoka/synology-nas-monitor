@@ -1,6 +1,6 @@
 package="nasmon"
 displayname="NAS Monitor"
-version="0.5.4-1"
+version="0.5.17-1"
 description="Monitor a remote Synology NAS via SYNO.API and show live status in a browser UI. Credentials are entered in the app and stored encrypted."
 maintainer="Synology NAS Monitor contributors"
 arch="noarch"

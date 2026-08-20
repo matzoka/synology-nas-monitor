@@ -15,7 +15,6 @@ STATUS_FILE = os.path.join(VAR, "status.json")
 TELEMETRY_DIR = os.path.join(VAR, "telemetry")
 JST = timezone(timedelta(hours=9))
 TELEMETRY_RETENTION_DAYS = 30
-_last_telemetry_minute = None
 _last_telemetry_cleanup_day = None
 
 CONFIG_DEFAULTS = {
@@ -177,16 +176,14 @@ def _number(value):
 
 
 def record_telemetry(data, now=None):
-    """Persist one lightweight sample per minute after a successful SYNO.API read.
+    """Persist one raw-timestamp sample after a successful SYNO.API read.
 
     Missing values remain null.  They are deliberately never converted to zero,
     so a collection gap cannot look like a temperature drop or spike.
     """
-    global _last_telemetry_minute, _last_telemetry_cleanup_day
+    global _last_telemetry_cleanup_day
     now = time.time() if now is None else now
-    minute = int(now // 60) * 60
-    if minute == _last_telemetry_minute:
-        return False
+    timestamp = int(now)
 
     disks = {}
     for disk in data.get("disks", []) or []:
@@ -194,7 +191,7 @@ def record_telemetry(data, now=None):
         if name:
             disks[name] = _number(disk.get("temp"))
     sample = {
-        "t": minute,
+        "t": timestamp,
         "cpu": _number((data.get("cpu") or {}).get("total")),
         "mem": _number((data.get("memory") or {}).get("usage")),
         "sys": _number(data.get("temperature")),
@@ -202,9 +199,8 @@ def record_telemetry(data, now=None):
     }
     try:
         os.makedirs(TELEMETRY_DIR, exist_ok=True)
-        with open(_telemetry_path(minute), "a", encoding="utf-8") as f:
+        with open(_telemetry_path(timestamp), "a", encoding="utf-8") as f:
             f.write(json.dumps(sample, ensure_ascii=False, separators=(",", ":")) + "\n")
-        _last_telemetry_minute = minute
 
         today = datetime.fromtimestamp(now, JST).date()
         if _last_telemetry_cleanup_day != today:

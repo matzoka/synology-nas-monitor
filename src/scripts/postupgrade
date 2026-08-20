@@ -18,6 +18,15 @@ if [ -d "$BACKUP_DIR" ]; then
   done
 fi
 
+# v0.5.17 starts fresh with raw, second-precision telemetry.  Remove only
+# the old graph/table samples once; encrypted settings and notification history
+# are intentionally preserved.
+RESET_MARKER="$PKG_DIR/var/telemetry-reset-v0.5.17"
+if [ ! -f "$RESET_MARKER" ]; then
+  rm -rf "$PKG_DIR/var/telemetry"
+  : > "$RESET_MARKER"
+fi
+
 chmod 600 "$PKG_DIR/etc/config.enc" "$PKG_DIR/etc/key" "$PKG_DIR/etc/server.key" 2>/dev/null
 chmod 644 "$PKG_DIR/etc/server.crt" 2>/dev/null
 exit 0
