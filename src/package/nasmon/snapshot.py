@@ -4,6 +4,7 @@ The NAS package deliberately does not require a browser, Chromium, Pillow, or a
 system font at runtime.  It draws a compact PNG report with a tiny built-in
 ASCII bitmap font, which keeps automatic alert delivery reliable on DSM.
 """
+import re
 import struct
 import time
 import zlib
@@ -196,6 +197,29 @@ def _max_disk(sample):
     return max(values) if values else None
 
 
+def drive_label(disk, fallback_index):
+    """Return a physical-location label instead of the collection-list index.
+
+    DSM returns one flat list containing NAS bays, expansion bays, and M.2
+    slots.  The list index is not a drive number, so it must never be shown to
+    the user as ``DRIVE 6`` or similar.
+    """
+    name = str(disk.get("name") or "")
+    unit = _ascii(disk.get("unit"), "").strip().upper()
+    compact = name.upper().replace(" ", "")
+    if "M.2" in compact or "M2" in compact or "Ｍ．２" in compact:
+        slots = re.findall(r"\d+", name)
+        slot = slots[-1] if slots else str(fallback_index)
+        return f"M2 DRIVE {slot}"
+    # Prefer the actual disk/bay number in the label.  A unit name such as
+    # DX517-1 also contains numbers but those are not the bay number.
+    match = re.search(r"(?:ディスク|DISK|DRIVE)\s*(\d+)", name, re.IGNORECASE)
+    slot = match.group(1) if match else str(fallback_index)
+    if unit.startswith(("DX", "RX")) or "EXPANSION" in unit:
+        return f"{unit[:14] or 'EXPANSION'} BAY {slot}"
+    return f"NAS BAY {slot}"
+
+
 def render(data, samples, cfg, state, fetched_at=None, ok=True, error=None):
     """Return a PNG byte string for one Telegram-friendly monitoring report."""
     data = data or {}
@@ -268,8 +292,7 @@ def render(data, samples, cfg, state, fetched_at=None, ok=True, error=None):
     for row, (original_index, disk) in enumerate(rows[:12]):
         y = table_y + 32 + row * 46
         c.line(42, y - 8, width - 42, y - 8, BORDER)
-        unit = _ascii(disk.get("unit"), "").strip()
-        label = f"DRIVE {original_index}" + (" " + unit[:14] if unit else "")
+        label = drive_label(disk, original_index)
         temp = disk.get("temp")
         color = RED if isinstance(temp, (int, float)) and temp >= cfg.get("emergTemp", 90) else ORANGE if isinstance(temp, (int, float)) and temp >= cfg.get("critTemp", 85) else YELLOW if isinstance(temp, (int, float)) and temp >= cfg.get("warnTemp", 75) else GREEN
         c.text(52, y + 3, label, TEXT, 2)

@@ -90,16 +90,23 @@ def answer_callback(token, callback_id, text=None):
         pass
 
 
-def edit_message_text(token, chat_id, message_id, text):
+def edit_message_text(token, chat_id, message_id, text, buttons=True):
     payload = {"chat_id": chat_id, "message_id": message_id, "text": text}
+    if buttons:
+        payload["reply_markup"] = BUTTONS
     try:
         _post(token, "editMessageText", payload, timeout=10)
     except TelegramError:
         pass
 
 
-def edit_message_caption(token, chat_id, message_id, caption):
+def edit_message_caption(token, chat_id, message_id, caption, buttons=True):
     payload = {"chat_id": chat_id, "message_id": message_id, "caption": str(caption)[:1024]}
+    # Telegram replaces the inline keyboard when a caption is edited unless it
+    # is supplied again.  Preserve every control so a later "通知再開" is
+    # always available after "1時間停止" or "通知停止".
+    if buttons:
+        payload["reply_markup"] = BUTTONS
     try:
         _post(token, "editMessageCaption", payload, timeout=10)
     except TelegramError:
