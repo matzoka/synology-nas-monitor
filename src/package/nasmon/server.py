@@ -226,10 +226,14 @@ def handle_callback(cb, cfg):
     st = store.load_state()
     label = None
     if action == "notify_hush_1h":
+        # The three user-facing notification modes are exclusive.  Choosing a
+        # one-hour pause must be able to replace a prior permanent pause.
+        st["notifyEnabled"] = True
         st["hushUntil"] = time.time() + 3600
         label = "🔕 1時間停止中（60分後に自動再開）"
     elif action == "notify_pause":
         st["notifyEnabled"] = False
+        st["hushUntil"] = None
         label = "🔕 通知停止中"
     elif action == "notify_resume":
         st["notifyEnabled"] = True
@@ -245,11 +249,27 @@ def handle_callback(cb, cfg):
         telegram.edit_message_caption(cfg["tgToken"], cid, msg.get("message_id"), orig_caption + "\n\n✅ " + label)
     elif orig_text:
         telegram.edit_message_text(cfg["tgToken"], cid, msg.get("message_id"), orig_text + "\n\n✅ " + label)
-    if action == "notify_resume":
-        try:
-            tg_send(status_message())
-        except telegram.TelegramError as e:
-            store.append_history("通知操作", "再開時の状態通知に失敗", sent=False, error=str(e))
+
+
+def process_telegram_updates(updates, cfg):
+    """Apply Telegram callbacks without overwriting their persisted state."""
+    st = store.load_state()
+    offset = st.get("tgOffset", 0) or 0
+    for u in updates or []:
+        offset = max(offset, u["update_id"] + 1)
+        cb = u.get("callback_query")
+        if cb:
+            try:
+                handle_callback(cb, cfg)
+            except Exception as e:
+                store.append_history("Telegram受信", "callback 処理失敗", sent=False, error=str(e))
+    if offset != (st.get("tgOffset", 0) or 0):
+        # A callback persists notification settings on its own.  Reload that
+        # state before writing the Telegram offset so it cannot be overwritten.
+        latest_state = store.load_state()
+        latest_state["tgOffset"] = offset
+        store.save_state(latest_state)
+    return offset
 
 
 def telegram_loop():
@@ -258,25 +278,14 @@ def telegram_loop():
         if not cfg["tgToken"] or not cfg["chatId"]:
             time.sleep(5)
             continue
-        st = store.load_state()
-        offset = st.get("tgOffset", 0) or 0
+        offset = store.load_state().get("tgOffset", 0) or 0
         try:
             updates = telegram.get_updates(cfg["tgToken"], offset, timeout=25)
         except telegram.TelegramError as e:
             store.append_history("Telegram受信", "getUpdates 失敗", sent=False, error=str(e))
             time.sleep(10)
             continue
-        for u in updates or []:
-            offset = max(offset, u["update_id"] + 1)
-            cb = u.get("callback_query")
-            if cb:
-                try:
-                    handle_callback(cb, cfg)
-                except Exception as e:
-                    store.append_history("Telegram受信", "callback 処理失敗", sent=False, error=str(e))
-        if offset != (st.get("tgOffset", 0) or 0):
-            st["tgOffset"] = offset
-            store.save_state(st)
+        process_telegram_updates(updates, cfg)
 
 
 class Handler(BaseHTTPRequestHandler):
